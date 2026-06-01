@@ -330,7 +330,7 @@ function ScheduleWidget({grade,cls}){
 
   // 알림함: 신청 활동이 있는 학생을 최신순으로. 마지막 확인 이후 들어온 신청을 신규로 본다.
   const tsOf=r=>{const t=r.updatedAt||r.confirmedAt||r.completedAt;if(!t)return 0;if(typeof t.toMillis==='function')return t.toMillis();if(t.seconds)return t.seconds*1000;return 0;};
-  const inbox=Object.entries(requests).filter(([k,v])=>v.status||v.requestedSlots?.length||v.confirmedSlotId).map(([k,v])=>({sNum:k,req:v,ts:tsOf(v)})).filter(x=>(x.ts||0)>Number(dismissedInbox[x.sNum]||0)).sort((a,b)=>b.ts-a.ts);
+  const inbox=Object.entries(requests).filter(([k,v])=>v.status||v.requestedSlots?.length||v.confirmedSlotId).map(([k,v])=>({sNum:k,req:v,ts:tsOf(v)})).filter(x=>!dismissedInbox[x.sNum]||(x.ts||0)>Number(dismissedInbox[x.sNum])).sort((a,b)=>b.ts-a.ts);
   const newCount=inbox.filter(x=>x.req.status==='pending'&&x.ts>seenAt).length;
 
   const periodNum=s=>s.period!==undefined&&s.period!==''?Number(s.period):s.startTime?.match(/^\d{2}교시$/)?Number(s.startTime.slice(0,2)):null;
