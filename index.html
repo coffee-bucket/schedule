@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>📅 상담 일정</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#5b6cf8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="상담일정">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+:root{--primary:#5b6cf8;--success:#10b981;--warning:#f59e0b;--danger:#ef4444;--gray-50:#f8fafc;--gray-100:#f1f5f9;--gray-200:#e2e8f0;--gray-300:#cbd5e1;--gray-400:#94a3b8;--gray-500:#64748b;--gray-600:#475569;--gray-700:#334155;--gray-800:#1e293b;--gray-900:#0f172a;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{background:var(--gray-100);color:var(--gray-800);font-family:'Malgun Gothic','맑은 고딕',system-ui,sans-serif;font-size:13px;}
+input,select,textarea{border:1px solid var(--gray-300);border-radius:5px;padding:6px 8px;font-size:13px;outline:none;transition:border-color .15s;font-family:inherit;background:white;color:var(--gray-800);-webkit-appearance:none;}
+input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(91,108,248,.12);}
+button{cursor:pointer;border:none;border-radius:5px;font-family:inherit;font-size:12px;transition:all .15s;-webkit-appearance:none;}
+button:hover{opacity:.88;} button:disabled{opacity:.5;cursor:not-allowed;}
+::-webkit-scrollbar{width:6px;} ::-webkit-scrollbar-thumb{background:var(--gray-300);border-radius:99px;}
+
+.badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:700;}
+.badge-green{background:#dcfce7;color:#15803d;} .badge-blue{background:#dbeafe;color:#1d4ed8;} .badge-gray{background:var(--gray-100);color:var(--gray-400);}
+.tab{padding:6px 12px;background:var(--gray-100);color:var(--gray-600);border-radius:5px;font-size:12px;font-weight:600;}
+.tab.active{background:var(--primary);color:white;}
+.empty-state{text-align:center;padding:40px 20px;color:var(--gray-400);}
+.field-label{font-size:11px;color:var(--gray-500);font-weight:500;margin-bottom:3px;}
+.btn-success{background:var(--success);color:white;font-weight:600;padding:7px 14px;}
+.btn-ghost{background:var(--gray-100);color:var(--gray-700);padding:6px 12px;}
+.btn-google{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:13px 20px;background:white;border:2px solid var(--gray-200);border-radius:8px;font-size:14px;font-weight:600;color:var(--gray-700);}
+
+/* 위젯 셸 */
+.wg{max-width:480px;margin:0 auto;min-height:100%;background:var(--gray-50);display:flex;flex-direction:column;}
+.wg-header{background:linear-gradient(135deg,#5b6cf8,#8b5cf6);color:white;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.wg-body{flex:1;padding:12px 14px;padding-bottom:max(14px,env(safe-area-inset-bottom));}
+.pick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.pick select{flex:1;min-width:0;font-weight:600;}
+.slot-card{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 10px;border-radius:8px;margin-bottom:5px;border:1px solid var(--gray-200);background:white;}
+.slot-card.confirmed{background:#f0fdf4;border-color:#a7f3d0;}
+.slot-card.done{background:var(--gray-50);}
+.day-chip{font-weight:700;font-size:12px;color:var(--primary);margin:10px 0 6px;padding:3px 9px;background:#eef2ff;border-radius:5px;display:inline-block;}
+
+/* 로그인 */
+.center-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#5b6cf8,#8b5cf6);padding:20px;}
+.card{background:white;border-radius:16px;padding:32px 26px;box-shadow:0 25px 60px rgba(0,0,0,.18);width:min(360px,calc(100vw - 32px));text-align:center;}
+.install-bar{background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:8px 10px;margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:12px;color:#3730a3;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW 등록 실패',e)));
+}
+</script>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useRef}=React;
+
+/* ── Firebase (원본 앱과 동일한 프로젝트) ── */
+const FB_CONFIG={"apiKey":"AIzaSyBYHjmTrzCMeyoisRwCh21ExtcyDt0JoVw","authDomain":"cons-cfa95.firebaseapp.com","projectId":"cons-cfa95","storageBucket":"cons-cfa95.firebasestorage.app","messagingSenderId":"814071622450","appId":"1:814071622450:web:583f037cc07f4999ee852b"};
+let db,auth;
+function initFirebase(cfg){
+  if(!firebase.apps.length)firebase.initializeApp(cfg);
+  db=firebase.firestore();auth=firebase.auth();
+}
+
+/* ── 헬퍼 (원본과 동일) ── */
+const ALL_CLASSES=[1,2,3,4,5,6,7,8,9];
+const ADMIN_EMAILS=['yjbs.t240003@ggh.goe.go.kr','park224236@gmail.com'];
+const isAdminEmail=email=>ADMIN_EMAILS.includes((email||'').toLowerCase());
+const gradeFromNumber=n=>{const g=parseInt(String(n||'').trim().charAt(0),10);return [2,3].includes(g)?g:2;};
+const gradeLabel=grade=>`${grade}학년`;
+const classDocId=(grade,cls)=>Number(grade)===2?`2-${cls}`:String(cls);
+const clsRef=(grade,cls)=>db.collection('classes').doc(classDocId(grade,cls));
+const teacherNumberFromUser=user=>{const m=(user?.email||'').match(/^t(\d+)@/);return m?m[1]:null;};
+const tEmail=(tNum,pid)=>`t${tNum}@${pid}.counseling`;
+
+const periodTimes={0:'08:00~08:50',8:'17:00~17:50',9:'18:00~18:50',10:'19:00~19:50',11:'20:00~20:50',12:'21:00~21:50'};
+const periodLabel=n=>periodTimes[n]?`${n}교시 (${periodTimes[n]})`:`${n}교시`;
+const dayNames=['일','월','화','수','목','금','토'];
+const dayLabel=d=>{const dt=new Date(d);return `${d} (${dayNames[dt.getDay()]})`;};
+
+/* ── 로그인 화면 (교사·관리자 전용) ── */
+function LoginScreen({onAdmin}){
+  const [tNum,setTNum]=useState('');const [pw,setPw]=useState('');
+  const [loading,setLoading]=useState(false);const [err,setErr]=useState('');
+  const googleLogin=async()=>{
+    setLoading(true);setErr('');
+    try{
+      const r=await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+      if(!isAdminEmail(r.user.email)){await auth.signOut();setErr('관리자 계정으로만 로그인할 수 있습니다.');setLoading(false);return;}
+      onAdmin&&onAdmin(r.user);
+    }catch(e){setErr('로그인 실패: '+e.message);setLoading(false);}
+  };
+  const teacherLogin=async()=>{
+    if(!tNum.trim()||!pw.trim()){setErr('계정과 비밀번호를 입력하세요');return;}
+    setLoading(true);setErr('');
+    try{await auth.signInWithEmailAndPassword(tEmail(tNum.trim(),FB_CONFIG.projectId),pw);}
+    catch(e){setErr('계정 또는 비밀번호가 올바르지 않습니다');setLoading(false);}
+  };
+  return(<div className="center-screen"><div className="card">
+    <div style={{fontSize:44,marginBottom:8}}>📅</div>
+    <h1 style={{fontSize:20,fontWeight:700,marginBottom:4}}>상담 일정 위젯</h1>
+    <p style={{color:'var(--gray-500)',fontSize:13,marginBottom:24}}>양주백석고 · 선생님 전용</p>
+    <button className="btn-google" onClick={googleLogin} disabled={loading}>
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      {loading?'로그인 중...':'Google 계정으로 로그인'}
+    </button>
+    <div style={{display:'flex',alignItems:'center',gap:8,margin:'16px 0'}}><div style={{height:1,background:'var(--gray-200)',flex:1}}/><span style={{fontSize:11,color:'var(--gray-400)'}}>또는 선생님 계정</span><div style={{height:1,background:'var(--gray-200)',flex:1}}/></div>
+    <div style={{textAlign:'left',marginBottom:10}}><div className="field-label">계정</div><input value={tNum} onChange={e=>setTNum(e.target.value)} placeholder="선생님 계정" style={{width:'100%',padding:'10px 12px'}} onKeyDown={e=>e.key==='Enter'&&teacherLogin()}/></div>
+    <div style={{textAlign:'left',marginBottom:14}}><div className="field-label">비밀번호</div><input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="비밀번호" style={{width:'100%',padding:'10px 12px'}} onKeyDown={e=>e.key==='Enter'&&teacherLogin()}/></div>
+    <button onClick={teacherLogin} disabled={loading} style={{width:'100%',padding:'11px',background:'linear-gradient(135deg,#5b6cf8,#8b5cf6)',color:'white',fontWeight:700,fontSize:14,borderRadius:8}}>{loading?'로그인 중...':'계정으로 로그인'}</button>
+    {err&&<p style={{color:'var(--danger)',fontSize:12,marginTop:10}}>{err}</p>}
+  </div></div>);
+}
+
+/* ── 일정 관리 본문 (원본 ScheduleModal 로직 이식) ── */
+function ScheduleWidget({grade,cls}){
+  const DEFAULT_LOCATION='교무실';
+  const [slots,setSlots]=useState([]);
+  const [requests,setRequests]=useState({});
+  const [studentMap,setStudentMap]=useState({});
+  const [date,setDate]=useState('');const [period,setPeriod]=useState('');const [location,setLocation]=useState(DEFAULT_LOCATION);
+  const [adding,setAdding]=useState(false);const [tab,setTab]=useState('slots');
+  const sortSlots=list=>list.sort((a,b)=>`${a.date||''} ${a.startTime||''}`.localeCompare(`${b.date||''} ${b.startTime||''}`));
+
+  useEffect(()=>{
+    setSlots([]);setRequests({});setStudentMap({});setTab('slots');
+    const unsub=clsRef(grade,cls).collection('slots')
+      .onSnapshot(snap=>setSlots(sortSlots(snap.docs.map(d=>({id:d.id,...d.data()})))),err=>{console.error(err);alert('상담 일정 불러오기 실패: '+(err.message||err));});
+    const unsub2=clsRef(grade,cls).collection('requests')
+      .onSnapshot(snap=>{const m={};snap.docs.forEach(d=>m[d.id]=d.data());setRequests(m);},err=>{console.error(err);});
+    const unsub3=clsRef(grade,cls).collection('students')
+      .onSnapshot(snap=>{const m={};snap.docs.forEach(d=>m[d.id]={id:d.id,...d.data()});setStudentMap(m);},err=>{console.error(err);});
+    return()=>{unsub();unsub2();unsub3();};
+  },[grade,cls]);
+
+  const addSlot=async()=>{
+    if(!date||period===''){alert('날짜와 교시를 모두 선택하세요');return;}
+    setAdding(true);
+    try{
+      const slotData={
+        date,
+        startTime:`${String(period).padStart(2,'0')}교시`,
+        endTime:'',
+        note:(location||DEFAULT_LOCATION).trim(),
+        confirmedFor:'',
+        createdAt:firebase.firestore.FieldValue.serverTimestamp()
+      };
+      await clsRef(grade,cls).collection('slots').add(slotData);
+      setPeriod('');setLocation(DEFAULT_LOCATION);setTab('slots');
+    }catch(e){console.error(e);alert('상담 일정 추가 실패: '+(e.message||e));}
+    finally{setAdding(false);}
+  };
+
+  const deleteSlot=async id=>{
+    if(!window.confirm('이 일정을 삭제하시겠습니까?'))return;
+    try{
+      const deletedSlot=slots.find(s=>s.id===id)||{};
+      const batch=db.batch();
+      batch.delete(clsRef(grade,cls).collection('slots').doc(id));
+      Object.entries(requests).forEach(([studentNum,req])=>{
+        const requested=(req.requestedSlots||[]).filter(sid=>sid!==id);
+        const patch={updatedAt:firebase.firestore.FieldValue.serverTimestamp()};
+        if((req.requestedSlots||[]).includes(id))patch.requestedSlots=requested;
+        if(req.confirmedSlotId===id){
+          patch.confirmedSlotId='';
+          patch.status=requested.length>0?'pending':firebase.firestore.FieldValue.delete();
+        }
+        if(req.lastCompletedSlotId===id||deletedSlot.completedFor===studentNum){
+          const completedRound=Number(deletedSlot.completedRound||req.lastCompletedRound||0);
+          patch.lastCompletedSlotId=firebase.firestore.FieldValue.delete();
+          patch.lastCompletedRound=firebase.firestore.FieldValue.delete();
+          patch.round=Math.max(1,completedRound||Number(req.round||1)-1);
+          if(!requested.length&&req.confirmedSlotId!==id)patch.status=firebase.firestore.FieldValue.delete();
+        }
+        if(Object.keys(patch).length>1)batch.set(clsRef(grade,cls).collection('requests').doc(studentNum),patch,{merge:true});
+      });
+      await batch.commit();
+    }catch(e){console.error(e);alert('상담 일정 삭제 실패: '+(e.message||e));}
+  };
+
+  const confirmSlot=async(slotId,studentNum)=>{
+    try{
+      const req=requests[studentNum]||{};
+      const name=req.name||studentMap[studentNum]?.name||'';
+      const batch=db.batch();
+      batch.update(clsRef(grade,cls).collection('slots').doc(slotId),{confirmedFor:studentNum});
+      batch.set(clsRef(grade,cls).collection('requests').doc(studentNum),{...req,studentNumber:studentNum,name,round:req.round||1,confirmedSlotId:slotId,status:'confirmed',confirmedAt:firebase.firestore.FieldValue.serverTimestamp(),updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      await batch.commit();
+    }catch(e){console.error(e);alert('상담 일정 확정 실패: '+(e.message||e));}
+  };
+
+  const completeSlot=async(slotId,studentNum)=>{
+    if(!window.confirm('이 상담을 완료 처리하고, 학생이 다음 회차를 신청할 수 있게 할까요?'))return;
+    try{
+      const req=requests[studentNum]||{};const round=req.round||1;
+      const batch=db.batch();
+      batch.update(clsRef(grade,cls).collection('slots').doc(slotId),{confirmedFor:'',completedFor:studentNum,completedRound:round,completedAt:firebase.firestore.FieldValue.serverTimestamp()});
+      batch.set(clsRef(grade,cls).collection('requests').doc(studentNum),{...req,status:'completed',confirmedSlotId:'',requestedSlots:[],lastCompletedSlotId:slotId,lastCompletedRound:round,round:round+1,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      await batch.commit();
+    }catch(e){console.error(e);alert('상담 완료 처리 실패: '+(e.message||e));}
+  };
+
+  const unconfirm=async(slotId,studentNum)=>{
+    try{
+      const batch=db.batch();
+      batch.update(clsRef(grade,cls).collection('slots').doc(slotId),{confirmedFor:''});
+      batch.set(clsRef(grade,cls).collection('requests').doc(studentNum),{confirmedSlotId:'',status:'pending',updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      await batch.commit();
+    }catch(e){console.error(e);alert('확정 취소 실패: '+(e.message||e));}
+  };
+
+  // 파생 데이터
+  const byDate={};slots.forEach(s=>{if(!byDate[s.date])byDate[s.date]=[];byDate[s.date].push(s);});
+  const confirmed=slots.filter(s=>s.confirmedFor&&requests[s.confirmedFor]?.status==='confirmed');
+  const pending=Object.entries(requests).filter(([k,v])=>v.status!=='confirmed'&&v.requestedSlots?.length>0);
+
+  const periodNum=s=>s.period!==undefined&&s.period!==''?Number(s.period):s.startTime?.match(/^\d{2}교시$/)?Number(s.startTime.slice(0,2)):null;
+  const slotLabel=s=>{const n=periodNum(s);return n!==null?periodLabel(n):`${s.startTime||''}${s.endTime?`~${s.endTime}`:''}`;};
+  const place=s=>s.location||s.note||'';
+  const studentLabel=(sNum,roundOverride)=>{const req=requests[sNum]||{};const round=roundOverride||req.round||1;const nm=req.name||studentMap[sNum]?.name||'';return `${sNum}${nm?` ${nm}`:''} ${round}회차`;};
+
+  // 전체 학생 목록 (직접 배정용, 번호순)
+  const allStudents=Object.values(studentMap).sort((a,b)=>(a.studentNumber||'').localeCompare(b.studentNumber||''));
+
+  return(<>
+    {/* 슬롯 추가 */}
+    <div style={{background:'white',border:'1px solid var(--gray-200)',borderRadius:10,padding:12,marginBottom:12}}>
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'flex-end'}}>
+        <div style={{flex:'1 1 120px',minWidth:110}}><div className="field-label">날짜</div><input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{width:'100%'}}/></div>
+        <div style={{flex:'1 1 110px',minWidth:100}}><div className="field-label">교시</div>
+          <select value={period} onChange={e=>setPeriod(e.target.value)} style={{width:'100%'}}>
+            <option value="">선택</option>
+            {Array.from({length:13},(_,i)=><option key={i} value={i}>{periodLabel(i)}</option>)}
+          </select>
+        </div>
+        <div style={{flex:'2 1 140px',minWidth:0}}><div className="field-label">장소</div><input value={location} onChange={e=>setLocation(e.target.value)} placeholder="예) 진로상담실" style={{width:'100%'}}/></div>
+        <button onClick={addSlot} disabled={adding} className="btn-success" style={{flex:'0 0 auto',whiteSpace:'nowrap'}}>+ 추가</button>
+      </div>
+    </div>
+
+    {/* 탭 */}
+    <div style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}}>
+      {[['slots',`일정 (${slots.length})`],['pending',`대기 (${pending.length})`],['confirmed',`확정 (${confirmed.length})`]].map(([k,l])=>(
+        <button key={k} className={`tab ${tab===k?'active':''}`} onClick={()=>setTab(k)}>{l}</button>))}
+    </div>
+
+    {/* 전체 일정 */}
+    {tab==='slots'&&(Object.keys(byDate).length===0?<div className="empty-state">등록된 일정이 없습니다</div>:
+      Object.entries(byDate).map(([d,daySlots])=>(
+        <div key={d}>
+          <div className="day-chip">{dayLabel(d)}</div>
+          {daySlots.map(s=>{
+            const reqList=Object.entries(requests).filter(([k,v])=>v.requestedSlots?.includes(s.id));
+            const reqStatus=s.confirmedFor&&requests[s.confirmedFor]?.status;
+            return(<div key={s.id} className={`slot-card ${s.confirmedFor?'confirmed':s.completedFor?'done':''}`}>
+              <span style={{fontWeight:600,fontSize:13,minWidth:48}}>{slotLabel(s)}</span>
+              {place(s)&&<span style={{fontSize:11,color:'var(--gray-500)'}}>{place(s)}</span>}
+              {s.confirmedFor?(
+                <><span className={`badge ${reqStatus==='confirmed'?'badge-green':'badge-blue'}`}>{studentLabel(s.confirmedFor)} {reqStatus==='confirmed'?'확정':'신청'}</span>
+                {reqStatus!=='confirmed'&&<button onClick={()=>confirmSlot(s.id,s.confirmedFor)} style={{marginLeft:'auto',background:'var(--success)',color:'white',padding:'4px 10px',fontWeight:600}}>확정</button>}
+                {reqStatus==='confirmed'&&<button onClick={()=>completeSlot(s.id,s.confirmedFor)} style={{marginLeft:'auto',background:'var(--primary)',color:'white',padding:'4px 10px',fontWeight:600}}>상담 완료</button>}
+                <button onClick={()=>unconfirm(s.id,s.confirmedFor)} style={{background:'none',color:'var(--gray-400)'}}>취소</button></>
+              ):s.completedFor?(
+                <span className="badge badge-gray">{studentLabel(s.completedFor,s.completedRound)} 완료</span>
+              ):(
+                <select onChange={e=>{if(e.target.value)confirmSlot(s.id,e.target.value);}} style={{marginLeft:'auto',maxWidth:150,fontSize:12}} defaultValue="">
+                  <option value="">학생 배정 ▾</option>
+                  {reqList.length>0&&<optgroup label="신청한 학생">
+                    {reqList.map(([k,v])=><option key={k} value={k}>{v.name||studentMap[k]?.name||k}</option>)}
+                  </optgroup>}
+                  <optgroup label="전체 학생">
+                    {allStudents.map(st=><option key={st.studentNumber} value={st.studentNumber}>{st.studentNumber} {st.name}</option>)}
+                  </optgroup>
+                </select>
+              )}
+              <button onClick={()=>deleteSlot(s.id)} title="삭제" style={{background:'#fef2f2',color:'var(--danger)',fontSize:14,width:26,height:26,borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center'}}>🗑</button>
+            </div>);
+          })}
+        </div>)))}
+
+    {/* 신청 대기 */}
+    {tab==='pending'&&(pending.length===0?<div className="empty-state">대기 중인 신청이 없습니다</div>:
+      pending.map(([sNum,req])=>(
+        <div key={sNum} style={{border:'1px solid var(--gray-200)',borderRadius:8,padding:10,marginBottom:8,background:'white'}}>
+          <div style={{fontWeight:600,marginBottom:6}}>{req.name||studentMap[sNum]?.name||''} ({sNum})</div>
+          {req.studentNote&&<div style={{fontSize:11,color:'var(--gray-500)',marginBottom:6,wordBreak:'break-all'}}>메모: {req.studentNote}</div>}
+          <div style={{display:'flex',flexDirection:'column',gap:4}}>
+            {(req.requestedSlots||[]).map((sid,i)=>{const slot=slots.find(s=>s.id===sid);return slot?(
+              <div key={sid} style={{display:'flex',alignItems:'center',gap:8,background:'var(--gray-50)',borderRadius:5,padding:'5px 10px'}}>
+                <span style={{fontSize:11,color:'var(--gray-400)'}}>{i+1}순위</span>
+                <span style={{fontSize:12,fontWeight:600}}>{dayLabel(slot.date)} {slotLabel(slot)}</span>
+                {slot.confirmedFor?<span className="badge badge-gray">확정됨</span>:
+                  <button onClick={()=>confirmSlot(sid,sNum)} style={{marginLeft:'auto',background:'var(--success)',color:'white',padding:'4px 10px',fontWeight:600}}>확정</button>}
+              </div>):null;})}
+          </div>
+        </div>)))}
+
+    {/* 확정 목록 */}
+    {tab==='confirmed'&&(confirmed.length===0?<div className="empty-state">확정된 일정이 없습니다</div>:
+      confirmed.map(s=>(
+        <div key={s.id} className="slot-card confirmed">
+          <span style={{fontWeight:700,fontSize:12,color:'var(--primary)'}}>{dayLabel(s.date)}</span>
+          <span style={{fontWeight:600}}>{slotLabel(s)}</span>
+          <span className="badge badge-green">{studentLabel(s.confirmedFor)}</span>
+          {place(s)&&<span style={{fontSize:11,color:'var(--gray-500)'}}>{place(s)}</span>}
+        </div>)))}
+  </>);
+}
+
+/* ── App (인증 + 학년/학급 선택) ── */
+function App(){
+  const [screen,setScreen]=useState('loading');
+  const [profile,setProfile]=useState(null); // {isAdmin, grades:[], classes:[], name}
+  const [grade,setGrade]=useState(null);
+  const [cls,setCls]=useState(null);
+  const [deferredPrompt,setDeferredPrompt]=useState(null);
+
+  useEffect(()=>{
+    const onBIP=e=>{e.preventDefault();setDeferredPrompt(e);};
+    window.addEventListener('beforeinstallprompt',onBIP);
+    return()=>window.removeEventListener('beforeinstallprompt',onBIP);
+  },[]);
+
+  const resolveUser=async u=>{
+    if(!u){setProfile(null);setScreen('login');return;}
+    const isGoogle=u.providerData.some(p=>p.providerId==='google.com');
+    if(isGoogle){
+      if(!isAdminEmail(u.email)){await auth.signOut();alert('관리자 계정으로만 로그인할 수 있습니다.');return;}
+      setProfile({name:u.displayName||u.email,isAdmin:true,grades:[2,3],classes:ALL_CLASSES});setScreen('app');return;
+    }
+    const tNum=teacherNumberFromUser(u);
+    if(tNum){
+      const g=gradeFromNumber(tNum);const c=parseInt(tNum.slice(1,3),10);
+      setProfile({name:`${g}학년 ${c}반 선생님`,isAdmin:false,grades:[g],classes:[c]});setScreen('app');return;
+    }
+    // 학생 등 그 외 계정은 위젯에서 사용 불가
+    await auth.signOut();alert('선생님·관리자 계정으로만 사용할 수 있습니다.');setScreen('login');
+  };
+
+  useEffect(()=>{
+    try{
+      initFirebase(FB_CONFIG);
+      const fb=setTimeout(()=>setScreen(s=>s==='loading'?'login':s),5000);
+      const unsub=auth.onAuthStateChanged(u=>{clearTimeout(fb);resolveUser(u).catch(e=>{console.error(e);setScreen('login');});});
+      return()=>{clearTimeout(fb);unsub();};
+    }catch(e){console.error(e);setScreen('login');}
+  },[]);
+
+  // 프로필 확정 시 학년/학급 초기화 (마지막 선택 복원)
+  useEffect(()=>{
+    if(!profile)return;
+    const lg=parseInt(localStorage.getItem('wgGrade'));
+    const ng=profile.grades.includes(lg)?lg:profile.grades[0];
+    const lc=parseInt(localStorage.getItem('wgCls'));
+    const nc=profile.classes.includes(lc)?lc:profile.classes[0];
+    setGrade(ng);setCls(nc);
+  },[profile]);
+
+  useEffect(()=>{if(grade)localStorage.setItem('wgGrade',String(grade));},[grade]);
+  useEffect(()=>{if(cls)localStorage.setItem('wgCls',String(cls));},[cls]);
+
+  const logout=()=>{auth.signOut();setProfile(null);setScreen('login');};
+  const install=async()=>{
+    if(!deferredPrompt)return;
+    deferredPrompt.prompt();await deferredPrompt.userChoice;setDeferredPrompt(null);
+  };
+
+  if(screen==='loading')return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--gray-400)'}}>📅 불러오는 중...</div>;
+  if(screen==='login')return<LoginScreen onAdmin={u=>resolveUser(u)}/>;
+  if(!profile||!grade||!cls)return null;
+
+  return(<div className="wg">
+    <div className="wg-header">
+      <div>
+        <div style={{fontSize:15,fontWeight:700}}>📅 상담 일정</div>
+        <div style={{fontSize:11,opacity:.85,marginTop:1}}>{profile.name}</div>
+      </div>
+      <button onClick={logout} style={{background:'rgba(255,255,255,.18)',color:'white',padding:'6px 12px',fontWeight:600}}>로그아웃</button>
+    </div>
+    <div className="wg-body">
+      {deferredPrompt&&<div className="install-bar">
+        <span style={{flex:1}}>홈 화면·바탕화면에 위젯으로 설치할 수 있습니다.</span>
+        <button onClick={install} style={{background:'var(--primary)',color:'white',padding:'5px 12px',fontWeight:600}}>설치</button>
+      </div>}
+      <div className="pick">
+        <select value={grade} onChange={e=>setGrade(Number(e.target.value))} disabled={profile.grades.length<=1}>
+          {profile.grades.map(g=><option key={g} value={g}>{gradeLabel(g)}</option>)}
+        </select>
+        <select value={cls} onChange={e=>setCls(Number(e.target.value))} disabled={profile.classes.length<=1}>
+          {profile.classes.map(c=><option key={c} value={c}>{c}반</option>)}
+        </select>
+      </div>
+      <ScheduleWidget key={`${grade}-${cls}`} grade={grade} cls={cls}/>
+    </div>
+  </div>);
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
