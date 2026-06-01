@@ -598,7 +598,7 @@ function App(){
         <div style={{fontSize:11,opacity:.85,marginTop:1}}>{profile.name}</div>
       </div>
       <div style={{display:'flex',gap:6,flexShrink:0}}>
-        <button onClick={()=>window.open('./상담일정_선생님_사용법.html','_blank')} className="icon-btn">사용법</button>
+        <button onClick={()=>window.open('./teacher-guide.html','_blank')} className="icon-btn">사용법</button>
         {!profile.isAdmin&&<button onClick={()=>setPwModal(true)} className="icon-btn">비번 변경</button>}
         <button onClick={logout} className="icon-btn">로그아웃</button>
       </div>
