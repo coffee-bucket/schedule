@@ -52,6 +52,11 @@ button:hover{opacity:.88;} button:disabled{opacity:.5;cursor:not-allowed;}
 .center-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#5b6cf8,#8b5cf6);padding:20px;}
 .card{background:white;border-radius:16px;padding:32px 26px;box-shadow:0 25px 60px rgba(0,0,0,.18);width:min(360px,calc(100vw - 32px));text-align:center;}
 .install-bar{background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:8px 10px;margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:12px;color:#3730a3;}
+.notif-bar{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:10px;display:flex;align-items:center;gap:8px;font-size:12px;color:#92400e;}
+.icon-btn{background:rgba(255,255,255,.18);color:white;padding:6px 10px;font-weight:600;border-radius:6px;}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px;}
+.modal{background:white;border-radius:14px;padding:24px;width:min(380px,calc(100vw - 24px));max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2);}
+.modal input{font-size:16px !important;}
 </style>
 </head>
 <body>
@@ -82,6 +87,17 @@ const classDocId=(grade,cls)=>Number(grade)===2?`2-${cls}`:String(cls);
 const clsRef=(grade,cls)=>db.collection('classes').doc(classDocId(grade,cls));
 const teacherNumberFromUser=user=>{const m=(user?.email||'').match(/^t(\d+)@/);return m?m[1]:null;};
 const tEmail=(tNum,pid)=>`t${tNum}@${pid}.counseling`;
+
+/* 로컬 알림 발송: 모바일은 SW의 showNotification만 허용되므로 그쪽을 우선 시도, 데스크톱은 생성자 fallback */
+async function notify(title,body){
+  if(!('Notification' in window)||Notification.permission!=='granted')return;
+  const opts={body,icon:'./icon-192.png',badge:'./icon-192.png',tag:'counsel-request',renotify:true};
+  try{
+    const reg=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();
+    if(reg&&reg.showNotification){await reg.showNotification(title,opts);return;}
+  }catch(e){}
+  try{new Notification(title,opts);}catch(e){}
+}
 
 const periodTimes={0:'08:00~08:50',8:'17:00~17:50',9:'18:00~18:50',10:'19:00~19:50',11:'20:00~20:50',12:'21:00~21:50'};
 const periodLabel=n=>periodTimes[n]?`${n}교시 (${periodTimes[n]})`:`${n}교시`;
@@ -122,6 +138,52 @@ function LoginScreen({onAdmin}){
   </div></div>);
 }
 
+/* ── 비밀번호 변경 (선생님 계정 전용) ── */
+function PasswordChangeModal({onClose}){
+  const user=auth.currentUser;
+  const [currentPw,setCurrentPw]=useState('');const [newPw,setNewPw]=useState('');const [confirmPw,setConfirmPw]=useState('');
+  const [saving,setSaving]=useState(false);const [err,setErr]=useState('');const [done,setDone]=useState(false);
+  const email=user?.email||'';
+  const idMatch=email.match(/^[st](\d+)@/);
+  const isTeacher=email.startsWith('t');
+  const submit=async()=>{
+    setErr('');setDone(false);
+    if(!currentPw||!newPw||!confirmPw){setErr('현재 비밀번호와 새 비밀번호를 모두 입력하세요.');return;}
+    if(newPw.length<6){setErr('새 비밀번호는 6자 이상이어야 합니다.');return;}
+    if(newPw!==confirmPw){setErr('새 비밀번호 확인이 일치하지 않습니다.');return;}
+    setSaving(true);
+    try{
+      const credential=firebase.auth.EmailAuthProvider.credential(email,currentPw);
+      await user.reauthenticateWithCredential(credential);
+      await user.updatePassword(newPw);
+      if(idMatch){
+        const collection=isTeacher?'teachers':'studentAccounts';
+        await db.collection(collection).doc(idMatch[1]).set({password:newPw,passwordChangedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+      }
+      setDone(true);setCurrentPw('');setNewPw('');setConfirmPw('');
+    }catch(e){
+      if(e.code==='auth/wrong-password'||e.code==='auth/invalid-credential')setErr('현재 비밀번호가 올바르지 않습니다.');
+      else if(e.code==='auth/weak-password')setErr('새 비밀번호가 너무 약합니다. 6자 이상으로 입력하세요.');
+      else setErr('비밀번호 변경 실패: '+e.message);
+    }finally{setSaving(false);}
+  };
+  return(<div className="modal-bg" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
+    <h3 style={{fontSize:16,fontWeight:700,marginBottom:4}}>비밀번호 변경</h3>
+    <p style={{color:'var(--gray-500)',fontSize:13,marginBottom:16}}>현재 비밀번호 확인 후 새 비밀번호로 변경합니다.</p>
+    <div style={{display:'grid',gap:10,marginBottom:12}}>
+      <div><div className="field-label">현재 비밀번호</div><input type="password" value={currentPw} onChange={e=>setCurrentPw(e.target.value)} style={{width:'100%',padding:'10px 12px'}}/></div>
+      <div><div className="field-label">새 비밀번호</div><input type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder="6자 이상 입력하세요" style={{width:'100%',padding:'10px 12px'}}/></div>
+      <div><div className="field-label">새 비밀번호 확인</div><input type="password" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)} placeholder="새 비밀번호를 다시 입력하세요" style={{width:'100%',padding:'10px 12px'}} onKeyDown={e=>e.key==='Enter'&&submit()}/></div>
+    </div>
+    {err&&<p style={{color:'var(--danger)',fontSize:12,marginBottom:10}}>{err}</p>}
+    {done&&<p style={{color:'var(--success)',fontSize:12,fontWeight:700,marginBottom:10}}>비밀번호가 변경되었습니다.</p>}
+    <div style={{display:'flex',gap:8}}>
+      <button onClick={submit} disabled={saving} style={{flex:1,padding:'11px',background:'var(--primary)',color:'white',fontWeight:700,fontSize:13,borderRadius:7}}>{saving?'변경 중...':'비밀번호 변경'}</button>
+      <button onClick={onClose} className="btn-ghost" style={{padding:'11px 14px'}}>닫기</button>
+    </div>
+  </div></div>);
+}
+
 /* ── 일정 관리 본문 (원본 ScheduleModal 로직 이식) ── */
 function ScheduleWidget({grade,cls}){
   const DEFAULT_LOCATION='교무실';
@@ -130,18 +192,47 @@ function ScheduleWidget({grade,cls}){
   const [studentMap,setStudentMap]=useState({});
   const [date,setDate]=useState('');const [period,setPeriod]=useState('');const [location,setLocation]=useState(DEFAULT_LOCATION);
   const [adding,setAdding]=useState(false);const [tab,setTab]=useState('slots');
+  const [seenAt,setSeenAt]=useState(0);
+  const seenKey=`wgSeen:${grade}:${cls}`;
   const sortSlots=list=>list.sort((a,b)=>`${a.date||''} ${a.startTime||''}`.localeCompare(`${b.date||''} ${b.startTime||''}`));
+  const firstReqSnap=useRef(true);
+  const prevReq=useRef({});
+  const studentMapRef=useRef({});
 
   useEffect(()=>{
     setSlots([]);setRequests({});setStudentMap({});setTab('slots');
+    firstReqSnap.current=true;prevReq.current={};studentMapRef.current={};
     const unsub=clsRef(grade,cls).collection('slots')
       .onSnapshot(snap=>setSlots(sortSlots(snap.docs.map(d=>({id:d.id,...d.data()})))),err=>{console.error(err);alert('상담 일정 불러오기 실패: '+(err.message||err));});
     const unsub2=clsRef(grade,cls).collection('requests')
-      .onSnapshot(snap=>{const m={};snap.docs.forEach(d=>m[d.id]=d.data());setRequests(m);},err=>{console.error(err);});
+      .onSnapshot(snap=>{
+        const m={};snap.docs.forEach(d=>m[d.id]=d.data());setRequests(m);
+        // 첫 스냅샷은 기준값으로만 저장하고 알림은 띄우지 않는다 (기존 신청 전체에 알림이 쏟아지는 것 방지)
+        if(firstReqSnap.current){firstReqSnap.current=false;prevReq.current=m;return;}
+        snap.docChanges().forEach(ch=>{
+          if(ch.type!=='added'&&ch.type!=='modified')return;
+          const id=ch.doc.id;const d=ch.doc.data();
+          const prevLen=prevReq.current[id]?.requestedSlots?.length||0;
+          const curLen=d.requestedSlots?.length||0;
+          // 신청 슬롯이 새로 늘었고 아직 확정·완료 전이면 새 신청으로 본다
+          if(curLen>prevLen&&d.status!=='confirmed'&&d.status!=='completed'){
+            const nm=d.name||studentMapRef.current[id]?.name||id;
+            notify(`새 상담 신청 · ${gradeLabel(grade)} ${cls}반`,`${nm} 학생이 상담을 신청했습니다.`);
+          }
+        });
+        prevReq.current=m;
+      },err=>{console.error(err);});
     const unsub3=clsRef(grade,cls).collection('students')
-      .onSnapshot(snap=>{const m={};snap.docs.forEach(d=>m[d.id]={id:d.id,...d.data()});setStudentMap(m);},err=>{console.error(err);});
+      .onSnapshot(snap=>{const m={};snap.docs.forEach(d=>m[d.id]={id:d.id,...d.data()});setStudentMap(m);studentMapRef.current=m;},err=>{console.error(err);});
     return()=>{unsub();unsub2();unsub3();};
   },[grade,cls]);
+
+  // 알림함: 진입 시 직전 확인 시점을 강조 기준(seenAt)으로 잡고, 현재 시각을 읽음으로 저장
+  useEffect(()=>{
+    const prev=Number(localStorage.getItem(seenKey)||0);
+    setSeenAt(prev);
+    if(tab==='inbox')localStorage.setItem(seenKey,String(Date.now()));
+  },[tab,grade,cls]);
 
   const addSlot=async()=>{
     if(!date||period===''){alert('날짜와 교시를 모두 선택하세요');return;}
@@ -224,6 +315,11 @@ function ScheduleWidget({grade,cls}){
   const confirmed=slots.filter(s=>s.confirmedFor&&requests[s.confirmedFor]?.status==='confirmed');
   const pending=Object.entries(requests).filter(([k,v])=>v.status!=='confirmed'&&v.requestedSlots?.length>0);
 
+  // 알림함: 신청 활동이 있는 학생을 최신순으로. 마지막 확인 이후 들어온 신청을 신규로 본다.
+  const tsOf=r=>{const t=r.updatedAt||r.confirmedAt||r.completedAt;if(!t)return 0;if(typeof t.toMillis==='function')return t.toMillis();if(t.seconds)return t.seconds*1000;return 0;};
+  const inbox=Object.entries(requests).filter(([k,v])=>v.status||v.requestedSlots?.length||v.confirmedSlotId).map(([k,v])=>({sNum:k,req:v,ts:tsOf(v)})).sort((a,b)=>b.ts-a.ts);
+  const newCount=inbox.filter(x=>x.req.status==='pending'&&x.ts>seenAt).length;
+
   const periodNum=s=>s.period!==undefined&&s.period!==''?Number(s.period):s.startTime?.match(/^\d{2}교시$/)?Number(s.startTime.slice(0,2)):null;
   const slotLabel=s=>{const n=periodNum(s);return n!==null?periodLabel(n):`${s.startTime||''}${s.endTime?`~${s.endTime}`:''}`;};
   const place=s=>s.location||s.note||'';
@@ -250,7 +346,7 @@ function ScheduleWidget({grade,cls}){
 
     {/* 탭 */}
     <div style={{display:'flex',gap:6,marginBottom:10,flexWrap:'wrap'}}>
-      {[['slots',`일정 (${slots.length})`],['pending',`대기 (${pending.length})`],['confirmed',`확정 (${confirmed.length})`]].map(([k,l])=>(
+      {[['slots',`일정 (${slots.length})`],['inbox',`알림함${newCount?` 🔴${newCount}`:''}`],['pending',`대기 (${pending.length})`],['confirmed',`확정 (${confirmed.length})`]].map(([k,l])=>(
         <button key={k} className={`tab ${tab===k?'active':''}`} onClick={()=>setTab(k)}>{l}</button>))}
     </div>
 
@@ -314,6 +410,31 @@ function ScheduleWidget({grade,cls}){
           <span className="badge badge-green">{studentLabel(s.confirmedFor)}</span>
           {place(s)&&<span style={{fontSize:11,color:'var(--gray-500)'}}>{place(s)}</span>}
         </div>)))}
+
+    {/* 알림함 */}
+    {tab==='inbox'&&(inbox.length===0?<div className="empty-state">아직 신청 내역이 없습니다</div>:
+      <>
+        <div style={{fontSize:11,color:'var(--gray-400)',marginBottom:8}}>마지막으로 확인한 이후 들어온 신청은 파란 표시로 강조됩니다.</div>
+        {inbox.map(({sNum,req,ts})=>{
+          const isNew=req.status==='pending'&&ts>seenAt;
+          const statusLabel=req.status==='confirmed'?'확정':req.status==='completed'?'완료':req.status==='pending'?'신청 대기':'';
+          const statusBadge=req.status==='confirmed'?'badge-green':req.status==='completed'?'badge-gray':'badge-blue';
+          const sid=req.confirmedSlotId||(req.requestedSlots||[])[0];
+          const slot=sid?slots.find(s=>s.id===sid):null;
+          const w=ts?new Date(ts):null;
+          const whenStr=w?`${String(w.getMonth()+1).padStart(2,'0')}/${String(w.getDate()).padStart(2,'0')} ${String(w.getHours()).padStart(2,'0')}:${String(w.getMinutes()).padStart(2,'0')}`:'';
+          return(<div key={sNum} style={{padding:'9px 11px',borderRadius:8,marginBottom:5,background:isNew?'#eff6ff':'white',border:`1px solid ${isNew?'#93c5fd':'var(--gray-200)'}`,borderLeft:isNew?'3px solid var(--primary)':undefined}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+              {isNew&&<span className="badge" style={{background:'var(--primary)',color:'white'}}>NEW</span>}
+              <span style={{fontWeight:700,fontSize:13}}>{req.name||studentMap[sNum]?.name||''} <span style={{color:'var(--gray-400)',fontWeight:400}}>{sNum}</span></span>
+              {statusLabel&&<span className={`badge ${statusBadge}`}>{statusLabel}</span>}
+              {whenStr&&<span style={{marginLeft:'auto',fontSize:11,color:'var(--gray-400)'}}>{whenStr}</span>}
+            </div>
+            {slot&&<div style={{fontSize:12,color:'var(--gray-600)',marginTop:4}}>{dayLabel(slot.date)} {slotLabel(slot)}{place(slot)?` · ${place(slot)}`:''}</div>}
+            {req.studentNote&&<div style={{fontSize:11,color:'var(--gray-500)',marginTop:3,wordBreak:'break-all'}}>메모: {req.studentNote}</div>}
+          </div>);
+        })}
+      </>)}
   </>);
 }
 
@@ -324,6 +445,12 @@ function App(){
   const [grade,setGrade]=useState(null);
   const [cls,setCls]=useState(null);
   const [deferredPrompt,setDeferredPrompt]=useState(null);
+  const [notifPerm,setNotifPerm]=useState(typeof Notification!=='undefined'?Notification.permission:'unsupported');
+  const [pwModal,setPwModal]=useState(false);
+  const askNotif=async()=>{
+    if(typeof Notification==='undefined'){alert('이 브라우저는 알림을 지원하지 않습니다.');return;}
+    const p=await Notification.requestPermission();setNotifPerm(p);
+  };
 
   useEffect(()=>{
     const onBIP=e=>{e.preventDefault();setDeferredPrompt(e);};
@@ -385,12 +512,22 @@ function App(){
         <div style={{fontSize:15,fontWeight:700}}>📅 상담 일정</div>
         <div style={{fontSize:11,opacity:.85,marginTop:1}}>{profile.name}</div>
       </div>
-      <button onClick={logout} style={{background:'rgba(255,255,255,.18)',color:'white',padding:'6px 12px',fontWeight:600}}>로그아웃</button>
+      <div style={{display:'flex',gap:6,flexShrink:0}}>
+        {!profile.isAdmin&&<button onClick={()=>setPwModal(true)} className="icon-btn">비번 변경</button>}
+        <button onClick={logout} className="icon-btn">로그아웃</button>
+      </div>
     </div>
     <div className="wg-body">
       {deferredPrompt&&<div className="install-bar">
         <span style={{flex:1}}>홈 화면·바탕화면에 위젯으로 설치할 수 있습니다.</span>
         <button onClick={install} style={{background:'var(--primary)',color:'white',padding:'5px 12px',fontWeight:600}}>설치</button>
+      </div>}
+      {notifPerm==='default'&&<div className="notif-bar">
+        <span style={{flex:1}}>알림을 켜면 학생이 상담을 신청할 때 바로 알려드립니다.</span>
+        <button onClick={askNotif} style={{background:'var(--warning)',color:'white',padding:'5px 12px',fontWeight:600}}>알림 켜기</button>
+      </div>}
+      {notifPerm==='denied'&&<div className="notif-bar">
+        <span>알림이 차단되어 있습니다. 브라우저 사이트 설정에서 이 사이트의 알림을 허용해 주세요.</span>
       </div>}
       <div className="pick">
         <select value={grade} onChange={e=>setGrade(Number(e.target.value))} disabled={profile.grades.length<=1}>
@@ -402,6 +539,7 @@ function App(){
       </div>
       <ScheduleWidget key={`${grade}-${cls}`} grade={grade} cls={cls}/>
     </div>
+    {pwModal&&<PasswordChangeModal onClose={()=>setPwModal(false)}/>}
   </div>);
 }
 
