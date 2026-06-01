@@ -193,7 +193,9 @@ function ScheduleWidget({grade,cls}){
   const [date,setDate]=useState('');const [period,setPeriod]=useState('');const [location,setLocation]=useState(DEFAULT_LOCATION);
   const [adding,setAdding]=useState(false);const [tab,setTab]=useState('slots');
   const [seenAt,setSeenAt]=useState(0);
+  const [dismissedInbox,setDismissedInbox]=useState({});
   const seenKey=`wgSeen:${grade}:${cls}`;
+  const dismissedKey=`wgDismissedInbox:${grade}:${cls}`;
   const sortSlots=list=>list.sort((a,b)=>`${a.date||''} ${a.startTime||''}`.localeCompare(`${b.date||''} ${b.startTime||''}`));
   const firstReqSnap=useRef(true);
   const prevReq=useRef({});
@@ -233,6 +235,11 @@ function ScheduleWidget({grade,cls}){
     setSeenAt(prev);
     if(tab==='inbox')localStorage.setItem(seenKey,String(Date.now()));
   },[tab,grade,cls]);
+
+  useEffect(()=>{
+    try{setDismissedInbox(JSON.parse(localStorage.getItem(dismissedKey)||'{}')||{});}
+    catch(e){setDismissedInbox({});}
+  },[dismissedKey]);
 
   const addSlot=async()=>{
     if(!date||period===''){alert('날짜와 교시를 모두 선택하세요');return;}
@@ -279,6 +286,12 @@ function ScheduleWidget({grade,cls}){
     }catch(e){console.error(e);alert('상담 일정 삭제 실패: '+(e.message||e));}
   };
 
+  const dismissInboxItem=(sNum,ts)=>{
+    const next={...dismissedInbox,[sNum]:ts||Date.now()};
+    setDismissedInbox(next);
+    localStorage.setItem(dismissedKey,JSON.stringify(next));
+  };
+
   const confirmSlot=async(slotId,studentNum)=>{
     try{
       const req=requests[studentNum]||{};
@@ -317,7 +330,7 @@ function ScheduleWidget({grade,cls}){
 
   // 알림함: 신청 활동이 있는 학생을 최신순으로. 마지막 확인 이후 들어온 신청을 신규로 본다.
   const tsOf=r=>{const t=r.updatedAt||r.confirmedAt||r.completedAt;if(!t)return 0;if(typeof t.toMillis==='function')return t.toMillis();if(t.seconds)return t.seconds*1000;return 0;};
-  const inbox=Object.entries(requests).filter(([k,v])=>v.status||v.requestedSlots?.length||v.confirmedSlotId).map(([k,v])=>({sNum:k,req:v,ts:tsOf(v)})).sort((a,b)=>b.ts-a.ts);
+  const inbox=Object.entries(requests).filter(([k,v])=>v.status||v.requestedSlots?.length||v.confirmedSlotId).map(([k,v])=>({sNum:k,req:v,ts:tsOf(v)})).filter(x=>(x.ts||0)>Number(dismissedInbox[x.sNum]||0)).sort((a,b)=>b.ts-a.ts);
   const newCount=inbox.filter(x=>x.req.status==='pending'&&x.ts>seenAt).length;
 
   const periodNum=s=>s.period!==undefined&&s.period!==''?Number(s.period):s.startTime?.match(/^\d{2}교시$/)?Number(s.startTime.slice(0,2)):null;
@@ -340,7 +353,7 @@ function ScheduleWidget({grade,cls}){
           </select>
         </div>
         <div style={{flex:'2 1 140px',minWidth:0}}><div className="field-label">장소</div><input value={location} onChange={e=>setLocation(e.target.value)} placeholder="예) 진로상담실" style={{width:'100%'}}/></div>
-        <button onClick={addSlot} disabled={adding} className="btn-success" style={{flex:'0 0 auto',whiteSpace:'nowrap'}}>+ 추가</button>
+        <button onClick={addSlot} disabled={adding} className="btn-success" style={{flex:'0 0 auto',minWidth:82,whiteSpace:'nowrap'}}>+ 일정 추가</button>
       </div>
     </div>
 
@@ -432,6 +445,7 @@ function ScheduleWidget({grade,cls}){
             </div>
             {slot&&<div style={{fontSize:12,color:'var(--gray-600)',marginTop:4}}>{dayLabel(slot.date)} {slotLabel(slot)}{place(slot)?` · ${place(slot)}`:''}</div>}
             {req.studentNote&&<div style={{fontSize:11,color:'var(--gray-500)',marginTop:3,wordBreak:'break-all'}}>메모: {req.studentNote}</div>}
+            <button onClick={()=>dismissInboxItem(sNum,ts)} title="알림 지우기" style={{marginTop:7,background:'var(--gray-100)',color:'var(--gray-600)',fontSize:11,padding:'4px 9px',fontWeight:600}}>지우기</button>
           </div>);
         })}
       </>)}
